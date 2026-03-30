@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Comparativo sEMG Q1-Q4</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  background: #0f0f1a;
+  color: white;
+}
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+}
+.card {
+  background: #1a1a2e;
+  border-radius: 14px;
+  padding: 18px;
+  margin-bottom: 18px;
+  box-shadow: 0 8px 22px rgba(0,0,0,.25);
+}
+h1, h2 {
+  margin-top: 0;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th, td {
+  padding: 10px;
+  border-bottom: 1px solid #2d2d50;
+  text-align: left;
+}
+.bar {
+  height: 14px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, #2ecc71, #f1c40f, #e67e22, #e74c3c);
+}
+.small {
+  color: #bbb;
+  font-size: 13px;
+}
+pre {
+  background: #16213e;
+  padding: 14px;
+  border-radius: 10px;
+  overflow: auto;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <h1>Análisis Comparativo sEMG — Q1 a Q4</h1>
+    <div class="small">
+      Pipeline: IntentTCN · QualityNet · ConvAE1D |
+      THR_INTENT=0.5 |
+      THR_QUALITY=0.5 |
+      WIN=400
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Resumen tabular</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Semana</th>
+          <th>Ventanas</th>
+          <th>OK %</th>
+          <th>RESTORE %</th>
+          <th>REJECT %</th>
+          <th>q_score medio</th>
+          <th>Latencia media (ms)</th>
+          <th>MSE medio</th>
+          <th>Corr media</th>
+        </tr>
+      </thead>
+      <tbody>
+
+        <tr>
+          <td>Semana 1 (Q1)</td>
+          <td>128</td>
+          <td>53.91</td>
+          <td>11.72</td>
+          <td>34.38</td>
+          <td>0.7035</td>
+          <td>1.0868</td>
+          <td>0.085889</td>
+          <td>0.982427</td>
+        </tr>
+
+        <tr>
+          <td>Semana 2 (Q2)</td>
+          <td>74</td>
+          <td>0.00</td>
+          <td>10.81</td>
+          <td>89.19</td>
+          <td>0.3444</td>
+          <td>1.2197</td>
+          <td>1.930362</td>
+          <td>0.963901</td>
+        </tr>
+
+        <tr>
+          <td>Semana 3 (Q3)</td>
+          <td>74</td>
+          <td>0.00</td>
+          <td>2.70</td>
+          <td>97.30</td>
+          <td>0.3800</td>
+          <td>1.0986</td>
+          <td>2.206148</td>
+          <td>0.977662</td>
+        </tr>
+
+        <tr>
+          <td>Semana 4 (Q4)</td>
+          <td>74</td>
+          <td>0.00</td>
+          <td>2.70</td>
+          <td>97.30</td>
+          <td>0.3800</td>
+          <td>1.0986</td>
+          <td>2.206148</td>
+          <td>0.977662</td>
+        </tr>
+
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Datos JSON</h2>
+    <pre>[
+  {
+    "week_name": "Semana 1 (Q1)",
+    "csv_path": "emgP33RcsvAMPUTADA1.csv",
+    "n_windows": 128,
+    "ok_pct": 53.90625,
+    "restore_pct": 11.71875,
+    "reject_pct": 34.375,
+    "q_score_mean": 0.7034572017000755,
+    "lat_mean": 1.0868037265581165,
+    "mse_mean": 0.08588867854947844,
+    "corr_mean": 0.982426598829022
+  },
+  {
+    "week_name": "Semana 2 (Q2)",
+    "csv_path": "emgP34RcsvAMPUTADA2.csv",
+    "n_windows": 74,
+    "ok_pct": 0.0,
+    "restore_pct": 10.81081081081081,
+    "reject_pct": 89.1891891891892,
+    "q_score_mean": 0.34444157170081463,
+    "lat_mean": 1.2197038243394254,
+    "mse_mean": 1.9303622310981154,
+    "corr_mean": 0.9639013724143402
+  },
+  {
+    "week_name": "Semana 3 (Q3)",
+    "csv_path": "emgP35RcsvAMPUTADA3.csv",
+    "n_windows": 74,
+    "ok_pct": 0.0,
+    "restore_pct": 2.7027027027027026,
+    "reject_pct": 97.29729729729729,
+    "q_score_mean": 0.38002353300013253,
+    "lat_mean": 1.0985687297306868,
+    "mse_mean": 2.206148073077202,
+    "corr_mean": 0.9776620121671686
+  },
+  {
+    "week_name": "Semana 4 (Q4)",
+    "csv_path": "emgP35RcsvAMPUTADA3.csv",
+    "n_windows": 74,
+    "ok_pct": 0.0,
+    "restore_pct": 2.7027027027027026,
+    "reject_pct": 97.29729729729729,
+    "q_score_mean": 0.38002353300013253,
+    "lat_mean": 1.0985658513366592,
+    "mse_mean": 2.206148073077202,
+    "corr_mean": 0.9776620121671686
+  }
+]</pre>
+  </div>
+</div>
+</body>
+</html>
