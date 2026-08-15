@@ -525,7 +525,7 @@ build_split("test",  test_files,  OUT_ROOT)
 
 # %% [code] {"execution":{"iopub.execute_input":"2026-03-11T16:51:43.912357Z","iopub.status.busy":"2026-03-11T16:51:43.911148Z","iopub.status.idle":"2026-03-11T16:51:44.462374Z","shell.execute_reply":"2026-03-11T16:51:44.461289Z"},"papermill":{"duration":0.559201,"end_time":"2026-03-11T16:51:44.464846","exception":false,"start_time":"2026-03-11T16:51:43.905645","status":"completed"},"tags":[]}
 # =========================
-# CELDA 5 (corregida): Inspección rápida (por split: train/val/test)
+# CELDA 5: Inspección rápida (por split: train/val/test)
 # =========================
 import glob, os, json
 from collections import Counter
@@ -540,12 +540,14 @@ for split_name in ["train", "val", "test"]:
     print("  quality shards:", len(quality_files))
     print("  restoration shards:", len(rest_xcorr_files))
 
+# Muestra visual usando el split de TRAIN
 intent_files = sorted(glob.glob(str(OUT_ROOT / "train" / "intent_dataset" / "X_*.npy")))
 quality_files = sorted(glob.glob(str(OUT_ROOT / "train" / "quality_dataset" / "X_*.npy")))
 
 if len(intent_files) == 0 or len(quality_files) == 0:
     raise FileNotFoundError(
-        "No se encontraron shards en train/. Revisa la ruta OUT_ROOT."
+        "No se encontraron shards en train/. Revisa que la CELDA 3/4 haya "
+        "corrido sin errores y que train_files no haya quedado vacío."
     )
 
 Xi = np.load(intent_files[0], mmap_mode="r")
@@ -573,3 +575,20 @@ plt.figure(figsize=(10,4))
 plt.plot(Xi[0,0])
 plt.title(f"Ejemplo señal intent_dataset (train) / label={Yi[0]}")
 plt.show()
+
+
+# %% [code]
+# =========================
+# CELDA 6: Comprimir todo en un .zip (FIX: Kaggle pierde archivos sueltos
+# al persistir el output del commit cuando hay muchos archivos pequenos)
+# =========================
+import shutil
+
+zip_path = "/kaggle/working/prepared_myoware_v2"
+shutil.make_archive(zip_path, "zip", root_dir="/kaggle/working", base_dir="prepared_myoware_v2")
+
+import os
+zip_size_mb = os.path.getsize(zip_path + ".zip") / (1024 * 1024)
+print(f"Creado: {zip_path}.zip ({zip_size_mb:.1f} MB)")
+print("Sube ESTE .zip como el dataset nuevo en Kaggle (no la carpeta suelta).")
+print("Al agregarlo como Input a otro notebook, Kaggle lo descomprime automaticamente.")
