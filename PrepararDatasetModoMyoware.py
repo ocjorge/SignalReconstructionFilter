@@ -525,7 +525,7 @@ build_split("test",  test_files,  OUT_ROOT)
 
 # %% [code] {"execution":{"iopub.execute_input":"2026-03-11T16:51:43.912357Z","iopub.status.busy":"2026-03-11T16:51:43.911148Z","iopub.status.idle":"2026-03-11T16:51:44.462374Z","shell.execute_reply":"2026-03-11T16:51:44.461289Z"},"papermill":{"duration":0.559201,"end_time":"2026-03-11T16:51:44.464846","exception":false,"start_time":"2026-03-11T16:51:43.905645","status":"completed"},"tags":[]}
 # =========================
-# CELDA 5: Inspección rápida (por split: train/val/test)
+# CELDA 5 (corregida): Inspección rápida (por split: train/val/test)
 # =========================
 import glob, os, json
 from collections import Counter
@@ -540,14 +540,12 @@ for split_name in ["train", "val", "test"]:
     print("  quality shards:", len(quality_files))
     print("  restoration shards:", len(rest_xcorr_files))
 
-# Muestra visual usando el split de TRAIN
 intent_files = sorted(glob.glob(str(OUT_ROOT / "train" / "intent_dataset" / "X_*.npy")))
 quality_files = sorted(glob.glob(str(OUT_ROOT / "train" / "quality_dataset" / "X_*.npy")))
 
 if len(intent_files) == 0 or len(quality_files) == 0:
     raise FileNotFoundError(
-        "No se encontraron shards en train/. Revisa que la CELDA 3/4 haya "
-        "corrido sin errores y que train_files no haya quedado vacío."
+        "No se encontraron shards en train/. Revisa la ruta OUT_ROOT."
     )
 
 Xi = np.load(intent_files[0], mmap_mode="r")
