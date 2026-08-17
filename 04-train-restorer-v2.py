@@ -362,3 +362,57 @@ for i, (xn, xr, xc) in enumerate(examples):
     plt.title(f"Ejemplo {i}")
     plt.legend()
     plt.show()
+
+# =========================
+# CELDA SUELTA: SNR agregado correctamente (pooled, no promedio de dB)
+# =========================
+# No hace falta reentrenar nada. Este código reusa 'model' (ya entrenado
+# y cargado con best_state) y 'val_loader' que ya existen en la sesión.
+# Corre esta celda DESPUÉS de que terminó el entrenamiento (celda 3),
+# en la misma sesión / kernel.
+
+import numpy as np
+import torch
+
+model.eval()
+
+sum_ps_before, sum_pn_before = 0.0, 0.0
+sum_ps_after, sum_pn_after = 0.0, 0.0
+n_samples = 0
+
+with torch.no_grad():
+    for xcorr, xclean, qscore in val_loader:
+        xcorr = xcorr.to(device)
+        xclean = xclean.to(device)
+        xhat = model(xcorr)
+
+        xc = xclean.cpu().numpy()
+        xn = xcorr.cpu().numpy()
+        xr = xhat.cpu().numpy()
+
+        noise_before = xn - xc
+        noise_after = xr - xc
+
+        # Suma de energía (no promedio todavía) para poder poolear correctamente
+        sum_ps_before += np.sum(xc ** 2)
+        sum_pn_before += np.sum(noise_before ** 2)
+        sum_ps_after += np.sum(xc ** 2)  # mismo denominador de señal limpia
+        sum_pn_after += np.sum(noise_after ** 2)
+        n_samples += xc.size
+
+ps_before = sum_ps_before / n_samples
+pn_before = sum_pn_before / n_samples + 1e-8
+ps_after = sum_ps_after / n_samples
+pn_after = sum_pn_after / n_samples + 1e-8
+
+snr_before_pooled = 10 * np.log10(ps_before / pn_before)
+snr_after_pooled = 10 * np.log10(ps_after / pn_after)
+
+print("=== SNR pooled (global), corrige el promedio de dB por ventana ===")
+print(f"SNR antes  (pooled): {snr_before_pooled:.2f} dB")
+print(f"SNR después (pooled): {snr_after_pooled:.2f} dB")
+print(f"Delta SNR (pooled): {snr_after_pooled - snr_before_pooled:+.2f} dB")
+print()
+print("Comparar con el valor anterior (promedio de dB por ventana, sesgado por outliers):")
+print(f"  snr_before (promedio por ventana) = {val_mets['snr_before']:.2f} dB")
+print(f"  snr_after  (promedio por ventana) = {val_mets['snr_after']:.2f} dB")
