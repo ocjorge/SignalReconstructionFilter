@@ -171,6 +171,98 @@ class ConvAE1D(nn.Module):
         y = self.decoder(z)
         return y
 
+# %% [code]
+# =========================
+# CELDA 2B: Cargar intent_model CONGELADO (guia para perdida task-aware)
+# =========================
+# FIX overnight: el restorer entrenado solo con MAE/MSE/SNR mejora
+# metricas de senal pero empeora la deteccion de intencion downstream
+# (ver notebook 10). Aqui se agrega un termino de perdida que usa el
+# clasificador de intencion YA ENTRENADO (congelado, no se actualiza)
+# como guia: la senal restaurada debe producir la MISMA prediccion de
+# intencion que produce la senal limpia.
+import torch.nn.functional as F
+
+
+class TCNBlock(nn.Module):
+    def __init__(self, in_ch, out_ch, k=5, dilation=1, drop=0.1):
+        super().__init__()
+        pad = (k - 1) * dilation // 2
+        self.conv1 = nn.Conv1d(in_ch, out_ch, k, padding=pad, dilation=dilation)
+        self.bn1 = nn.BatchNorm1d(out_ch)
+        self.conv2 = nn.Conv1d(out_ch, out_ch, k, padding=pad, dilation=dilation)
+        self.bn2 = nn.BatchNorm1d(out_ch)
+        self.act = nn.ReLU()
+        self.drop = nn.Dropout(drop)
+        self.skip = nn.Conv1d(in_ch, out_ch, 1) if in_ch != out_ch else nn.Identity()
+
+    def forward(self, x):
+        s = self.skip(x)
+        x = self.drop(self.act(self.bn1(self.conv1(x))))
+        x = self.drop(self.act(self.bn2(self.conv2(x))))
+        return self.act(x + s)
+
+
+class IntentTCN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.stem = nn.Sequential(
+            nn.Conv1d(1, 16, 7, padding=3),
+            nn.BatchNorm1d(16),
+            nn.ReLU(),
+        )
+        self.tcn = nn.Sequential(
+            TCNBlock(16, 16, dilation=1, drop=0.10),
+            TCNBlock(16, 32, dilation=2, drop=0.10),
+            TCNBlock(32, 32, dilation=4, drop=0.10),
+        )
+        self.pool = nn.AdaptiveAvgPool1d(1)
+        self.head = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(32, 32),
+            nn.ReLU(),
+            nn.Dropout(0.10),
+            nn.Linear(32, 1),
+        )
+
+    def forward(self, x):
+        x = self.stem(x)
+        x = self.tcn(x)
+        x = self.pool(x)
+        return self.head(x)
+
+
+device_tmp = "cuda" if torch.cuda.is_available() else "cpu"
+
+KAGGLE_MODELS_DIR = "/kaggle/input/models/jorgeoc/emg-modelos-v2/pytorch/default/1"
+MODELS_SCRATCH_DIR = "/kaggle/working/models_reconstructed"
+
+def ensure_pt_file(name):
+    os.makedirs(MODELS_SCRATCH_DIR, exist_ok=True)
+    direct_path = os.path.join(KAGGLE_MODELS_DIR, f"{name}.pt")
+    if os.path.isfile(direct_path):
+        return direct_path
+    exploded_outer = os.path.join(KAGGLE_MODELS_DIR, name)
+    exploded_inner = os.path.join(exploded_outer, name)
+    if os.path.isdir(exploded_inner) and os.path.isfile(os.path.join(exploded_inner, "data.pkl")):
+        import shutil
+        out_zip_noext = os.path.join(MODELS_SCRATCH_DIR, name)
+        shutil.make_archive(out_zip_noext, "zip", root_dir=exploded_outer, base_dir=name)
+        out_pt = out_zip_noext + ".pt"
+        os.replace(out_zip_noext + ".zip", out_pt)
+        return out_pt
+    raise FileNotFoundError(f"No se encontro {name}.pt en {KAGGLE_MODELS_DIR}")
+
+
+intent_model = IntentTCN().to(device_tmp)
+intent_model.load_state_dict(torch.load(ensure_pt_file("intent_binary_best"), map_location=device_tmp))
+intent_model.eval()
+for p in intent_model.parameters():
+    p.requires_grad_(False)
+
+print("intent_model (congelado) cargado para guiar el entrenamiento del restorer.")
+
+
 # %% [code] {"execution":{"iopub.execute_input":"2026-03-14T21:56:12.752600Z","iopub.status.busy":"2026-03-14T21:56:12.752377Z","iopub.status.idle":"2026-03-15T03:59:49.247555Z","shell.execute_reply":"2026-03-15T03:59:49.246864Z"},"papermill":{"duration":21816.503009,"end_time":"2026-03-15T03:59:49.252348","exception":false,"start_time":"2026-03-14T21:56:12.749339","status":"completed"},"tags":[]}
 # =========================
 # CELDA 3: Entrenamiento
@@ -201,13 +293,22 @@ l1 = nn.L1Loss()
 mse = nn.MSELoss()
 opt = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-5)
 
+LAMBDA_TASK = 2.0  # peso del termino task-aware, ajustable
+
 def composite_loss(yhat, y):
-    return 0.7 * l1(yhat, y) + 0.3 * mse(yhat, y)
+    recon = 0.7 * l1(yhat, y) + 0.3 * mse(yhat, y)
+    with torch.no_grad():
+        p_clean = torch.sigmoid(intent_model(y))
+    p_restored = torch.sigmoid(intent_model(yhat))
+    task = F.mse_loss(p_restored, p_clean)
+    total = recon + LAMBDA_TASK * task
+    return total, recon.detach(), task.detach()
 
 @torch.no_grad()
 def evaluate(loader):
     model.eval()
     losses = []
+    task_losses = []
     maes_before, maes_after = [], []
     mses_before, mses_after = [], []
     snr_before, snr_after = [], []
@@ -220,8 +321,9 @@ def evaluate(loader):
         xclean = xclean.to(device)
 
         xhat = model(xcorr)
-        loss = composite_loss(xhat, xclean)
+        loss, recon_l, task_l = composite_loss(xhat, xclean)
         losses.append(loss.item() * xcorr.size(0))
+        task_losses.append(task_l.item() * xcorr.size(0))
 
         xc = xclean.cpu().numpy()
         xn = xcorr.cpu().numpy()
@@ -246,6 +348,7 @@ def evaluate(loader):
 
     mets = {
         "loss": np.sum(losses) / max(len(maes_before), 1),
+        "task_loss": np.sum(task_losses) / max(len(maes_before), 1),
         "mae_before": float(np.mean(maes_before)),
         "mae_after": float(np.mean(maes_after)),
         "mse_before": float(np.mean(mses_before)),
@@ -283,7 +386,7 @@ for ep in range(1, EPOCHS + 1):
 
         opt.zero_grad()
         xhat = model(xcorr)
-        loss = composite_loss(xhat, xclean)
+        loss, recon_l, task_l = composite_loss(xhat, xclean)
         loss.backward()
         opt.step()
 
@@ -302,10 +405,13 @@ for ep in range(1, EPOCHS + 1):
     history["corr_before"].append(val_mets["corr_before"])
     history["corr_after"].append(val_mets["corr_after"])
 
-    score = val_mets["delta_snr"] + val_mets["delta_mae"] + (val_mets["corr_after"] - val_mets["corr_before"])
+    score = (val_mets["delta_snr"] + val_mets["delta_mae"]
+              + (val_mets["corr_after"] - val_mets["corr_before"])
+              - 5.0 * val_mets["task_loss"])  # penaliza divergencia con la prediccion de intencion en senal limpia
 
     print(
         f"Epoch {ep:02d} | train_loss={train_loss:.4f} | val_loss={val_mets['loss']:.4f} | "
+        f"task_loss={val_mets['task_loss']:.4f} | "
         f"MAE {val_mets['mae_before']:.4f}->{val_mets['mae_after']:.4f} | "
         f"SNR {val_mets['snr_before']:.2f}->{val_mets['snr_after']:.2f} | "
         f"Corr {val_mets['corr_before']:.4f}->{val_mets['corr_after']:.4f} | "
@@ -323,8 +429,9 @@ for ep in range(1, EPOCHS + 1):
             break
 
 model.load_state_dict(best_state)
-torch.save(model.state_dict(), "/kaggle/working/restorer_best.pt")
-print("Guardado: /kaggle/working/restorer_best.pt")
+torch.save(model.state_dict(), "/kaggle/working/restorer_taskaware_best.pt")
+print("Guardado: /kaggle/working/restorer_taskaware_best.pt")
+print("(nombre distinto a proposito, para no perder el restorer_best.pt original)")
 
 # %% [code] {"execution":{"iopub.execute_input":"2026-03-15T03:59:49.259805Z","iopub.status.busy":"2026-03-15T03:59:49.259438Z","iopub.status.idle":"2026-03-15T04:01:19.130592Z","shell.execute_reply":"2026-03-15T04:01:19.129832Z"},"papermill":{"duration":89.877074,"end_time":"2026-03-15T04:01:19.132485","exception":false,"start_time":"2026-03-15T03:59:49.255411","status":"completed"},"tags":[]}
 # =========================
@@ -362,57 +469,3 @@ for i, (xn, xr, xc) in enumerate(examples):
     plt.title(f"Ejemplo {i}")
     plt.legend()
     plt.show()
-
-# =========================
-# CELDA SUELTA: SNR agregado correctamente (pooled, no promedio de dB)
-# =========================
-# No hace falta reentrenar nada. Este código reusa 'model' (ya entrenado
-# y cargado con best_state) y 'val_loader' que ya existen en la sesión.
-# Corre esta celda DESPUÉS de que terminó el entrenamiento (celda 3),
-# en la misma sesión / kernel.
-
-import numpy as np
-import torch
-
-model.eval()
-
-sum_ps_before, sum_pn_before = 0.0, 0.0
-sum_ps_after, sum_pn_after = 0.0, 0.0
-n_samples = 0
-
-with torch.no_grad():
-    for xcorr, xclean, qscore in val_loader:
-        xcorr = xcorr.to(device)
-        xclean = xclean.to(device)
-        xhat = model(xcorr)
-
-        xc = xclean.cpu().numpy()
-        xn = xcorr.cpu().numpy()
-        xr = xhat.cpu().numpy()
-
-        noise_before = xn - xc
-        noise_after = xr - xc
-
-        # Suma de energía (no promedio todavía) para poder poolear correctamente
-        sum_ps_before += np.sum(xc ** 2)
-        sum_pn_before += np.sum(noise_before ** 2)
-        sum_ps_after += np.sum(xc ** 2)  # mismo denominador de señal limpia
-        sum_pn_after += np.sum(noise_after ** 2)
-        n_samples += xc.size
-
-ps_before = sum_ps_before / n_samples
-pn_before = sum_pn_before / n_samples + 1e-8
-ps_after = sum_ps_after / n_samples
-pn_after = sum_pn_after / n_samples + 1e-8
-
-snr_before_pooled = 10 * np.log10(ps_before / pn_before)
-snr_after_pooled = 10 * np.log10(ps_after / pn_after)
-
-print("=== SNR pooled (global), corrige el promedio de dB por ventana ===")
-print(f"SNR antes  (pooled): {snr_before_pooled:.2f} dB")
-print(f"SNR después (pooled): {snr_after_pooled:.2f} dB")
-print(f"Delta SNR (pooled): {snr_after_pooled - snr_before_pooled:+.2f} dB")
-print()
-print("Comparar con el valor anterior (promedio de dB por ventana, sesgado por outliers):")
-print(f"  snr_before (promedio por ventana) = {val_mets['snr_before']:.2f} dB")
-print(f"  snr_after  (promedio por ventana) = {val_mets['snr_after']:.2f} dB")
