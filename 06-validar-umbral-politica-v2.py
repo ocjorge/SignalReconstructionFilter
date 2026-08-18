@@ -686,3 +686,13 @@ if external_path is not None:
     plt.show()
 else:
     print("Sube una señal externa y asigna external_path para probar MyoWare.")
+
+# =========================
+# CELDA SUELTA: desglose de razones en TEST (para Revisor 1, punto #4)
+# =========================
+# Correr DESPUES de que ya existe df_test (celda de evaluacion final en test)
+print("Desglose de decisiones en TEST:")
+print(df_test["decision"].value_counts(normalize=True) * 100)
+print()
+print("Desglose de razones en TEST:")
+print(df_test["reason"].value_counts(normalize=True) * 100)
