@@ -334,8 +334,12 @@ x_in = None
 x_clean_ref = None
 
 if SOURCE_MODE == "dataset":
+    # FIX: antes tomaba candidate_dirs[0] sin garantia de que fuera TEST
+    # (podia agarrar train/ o val/ por accidente -> mismo leakage que ya
+    # corregimos en otros notebooks). Ahora se busca explicitamente la
+    # carpeta "test".
     candidate_dirs = []
-    for p in glob.glob("/kaggle/input/**/restoration_dataset", recursive=True):
+    for p in glob.glob("/kaggle/input/**/test/restoration_dataset", recursive=True):
         if os.path.isdir(p):
             xcorr = glob.glob(os.path.join(p, "Xcorr_*.npy"))
             xclean = glob.glob(os.path.join(p, "Xclean_*.npy"))
@@ -343,16 +347,20 @@ if SOURCE_MODE == "dataset":
                 candidate_dirs.append(p)
 
     if not candidate_dirs:
-        raise FileNotFoundError("No encontré restoration_dataset.")
+        raise FileNotFoundError(
+            "No encontré restoration_dataset dentro de una carpeta 'test/'. "
+            "Revisa que el dataset prepared-myoware-split-v2 este agregado."
+        )
 
     RDIR = candidate_dirs[0]
+    print("Usando split:", RDIR)
     Xcorr_files = sorted(glob.glob(os.path.join(RDIR, "Xcorr_*.npy")))
     Xclean_files = sorted(glob.glob(os.path.join(RDIR, "Xclean_*.npy")))
 
     x_in = np.load(Xcorr_files[0])[:500]
     x_clean_ref = np.load(Xclean_files[0])[:500]
 
-    print("Usando dataset real")
+    print("Usando dataset real (split=TEST, nunca visto en entrenamiento)")
     print("x_in:", x_in.shape)
     print("x_clean_ref:", x_clean_ref.shape)
 
